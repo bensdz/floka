@@ -34,81 +34,70 @@ func Pull(name string, tag string) (*Image, error) {
 	if err := os.MkdirAll(rootDir, 0755); err != nil {
 		return nil, fmt.Errorf("failed to create image directory: %w", err)
 	}
-	
-	// For our simplified implementation, we'll try to use debootstrap if available
-	// to create a minimal rootfs for demonstration purposes
-	// In a real implementation, we would download the layers from a registry
-	
+
 	img := &Image{
-		Name:    name,
-		Tag:     tag,
-		ID:      imageID,
-		Size:    0,
-		Layers:  []string{},
-		RootDir: rootDir,
+		Name:   name,
+		Tag:    tag,
+		ID:     generateID(),
+		Size:   1024 * 1024 * 256, // Mock size
+		Layers: []string{"base"},
 	}
 	
-	// Try to detect what kind of image is requested
-	if strings.Contains(name, "alpine") {
-		if err := createAlpineRootfs(rootDir); err != nil {
-			// If we can't create a real rootfs, use a mock one
-			fmt.Printf("Warning: Couldn't create Alpine rootfs, using mock: %v\n", err)
-			if err := createMockRootfs(rootDir); err != nil {
-				return nil, err
-			}
-		}
-	} else if strings.Contains(name, "ubuntu") || strings.Contains(name, "debian") {
-		if err := createDebianRootfs(rootDir); err != nil {
-			// If we can't create a real rootfs, use a mock one
-			fmt.Printf("Warning: Couldn't create Debian rootfs, using mock: %v\n", err)
-			if err := createMockRootfs(rootDir); err != nil {
-				return nil, err
-			}
-		}
+	if strings.Contains(name, "ubuntu") {
+        
+		// Check if we have the image already
+        imgDir := filepath.Join(os.Getenv("HOME"), "floka", "images", "ubuntu")
+        if _, err := os.Stat(imgDir); os.IsNotExist(err) {
+            return nil, fmt.Errorf("ubuntu image not found at %s - please download it first", imgDir)
+        }
+        
+        return img, nil
 	} else {
-		// For other images, create a mock rootfs
+		// For other images, create a mock filesystem
+		fmt.Printf("Creating mock filesystem for %s:%s\n", name, tag)
+
+		// Set the rootfs directory for the image
+		img.RootDir = rootDir
+
+		// Create a basic mock rootfs
 		if err := createMockRootfs(rootDir); err != nil {
-			return nil, err
+			return nil, fmt.Errorf("failed to create mock rootfs: %w", err)
+		}
+
+		// Customize based on the image name
+		if strings.Contains(name, "alpine") {
+			// Add alpine-specific files
+			alpineRelease := filepath.Join(rootDir, "etc", "alpine-release")
+			if err := os.WriteFile(alpineRelease, []byte("3.14.0\n"), 0644); err != nil {
+				return nil, fmt.Errorf("failed to create alpine-release file: %w", err)
+			}
+		} else if strings.Contains(name, "debian") {
+			// Add debian-specific files
+			osRelease := filepath.Join(rootDir, "etc", "os-release")
+			if err := os.WriteFile(osRelease, []byte("PRETTY_NAME=\"Debian GNU/Linux 11 (bullseye)\"\n"), 0644); err != nil {
+				return nil, fmt.Errorf("failed to create os-release file: %w", err)
+			}
+		} else {
+			// Generic Linux
+			osRelease := filepath.Join(rootDir, "etc", "os-release")
+			if err := os.WriteFile(osRelease, []byte("PRETTY_NAME=\"Generic Linux\"\n"), 0644); err != nil {
+				return nil, fmt.Errorf("failed to create os-release file: %w", err)
+			}
 		}
 	}
 	
-	// Calculate the size
+	// Set the root directory for the image
+	img.RootDir = rootDir
+	// Calculate the size of the rootfs
 	if size, err := dirSize(rootDir); err == nil {
 		img.Size = size
+	} else {
+		return nil, fmt.Errorf("failed to calculate rootfs size: %w", err)
 	}
 	
 	return img, nil
 }
 
-// createAlpineRootfs attempts to create an Alpine rootfs using apk tools
-func createAlpineRootfs(rootDir string) error {
-	// Check if we have apk available
-	if _, err := exec.LookPath("apk"); err != nil {
-		return fmt.Errorf("apk not found: %w", err)
-	}
-	
-	// Create a minimal Alpine rootfs
-	cmd := exec.Command("apk", "--root", rootDir, "--no-cache", "--initdb", "add", "alpine-baselayout", "busybox")
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-	
-	return cmd.Run()
-}
-
-// createDebianRootfs attempts to create a Debian rootfs using debootstrap
-func createDebianRootfs(rootDir string) error {
-	// Check if we have debootstrap available
-	if _, err := exec.LookPath("debootstrap"); err != nil {
-		return fmt.Errorf("debootstrap not found: %w", err)
-	}
-	
-	// Create a minimal Debian rootfs
-	cmd := exec.Command("debootstrap", "--variant=minbase", "stable", rootDir)
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-	
-	return cmd.Run()
-}
 
 // createMockRootfs creates a minimal mock rootfs with basic directories
 func createMockRootfs(rootDir string) error {
@@ -181,9 +170,9 @@ func dirSize(path string) (int64, error) {
 	return size, err
 }
 
-// Build creates a new image from a Dockerfile
-func Build(dockerfilePath, tag string) (*Image, error) {
-	fmt.Printf("Building image from %s with tag %s\n", dockerfilePath, tag)
+// Build creates a new image from a flokafile
+func Build(flokafilePath, tag string) (*Image, error) {
+	fmt.Printf("Building image from %s with tag %s\n", flokafilePath, tag)
 	
 	// Create a unique ID for the image
 	imageID := generateID()
@@ -196,15 +185,104 @@ func Build(dockerfilePath, tag string) (*Image, error) {
 		return nil, fmt.Errorf("failed to create image directory: %w", err)
 	}
 	
-	// In a real implementation, we would:
-	// 1. Parse the Dockerfile
-	// 2. Execute each instruction
-	// 3. Create a new layer for each instruction
-	
-	// For our mock implementation, create a basic rootfs
-	if err := createMockRootfs(rootDir); err != nil {
-		return nil, err
+	// Parse and process the Flokafile
+	flokafileContent, err := os.ReadFile(flokafilePath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read Flokafile: %w", err)
 	}
+
+	// Create a basic rootfs structure first
+	if err := createMockRootfs(rootDir); err != nil {
+		return nil, fmt.Errorf("failed to create base rootfs: %w", err)
+	}
+
+	// Parse Flokafile (line by line for simplicity)
+	lines := strings.Split(string(flokafileContent), "\n")
+	for i, line := range lines {
+		line = strings.TrimSpace(line)
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue // Skip empty lines and comments
+		}
+
+		parts := strings.SplitN(line, " ", 2)
+		if len(parts) < 2 {
+			return nil, fmt.Errorf("invalid instruction at line %d: %s", i+1, line)
+		}
+
+		instruction, args := parts[0], parts[1]
+		
+		fmt.Printf("Executing instruction: %s %s\n", instruction, args)
+		
+		// Process each instruction type
+		switch strings.ToUpper(instruction) {
+		case "FROM":
+			// Get base image - we already have createMockRootfs for now
+			fmt.Printf("Using %s as base image\n", args)
+			
+		case "RUN":
+			// Simulate running a command
+			fmt.Printf("Running command: %s\n", args)
+			// In a real implementation, we would execute the command in a container
+			
+		case "COPY":
+			// Copy files from host to the image
+			copyParts := strings.SplitN(args, " ", 2)
+			if len(copyParts) != 2 {
+				return nil, fmt.Errorf("invalid COPY instruction at line %d", i+1)
+			}
+			src, dest := copyParts[0], copyParts[1]
+			
+			// Make sure destination directory exists
+			destDir := filepath.Join(rootDir, filepath.Dir(dest))
+			if err := os.MkdirAll(destDir, 0755); err != nil {
+				return nil, fmt.Errorf("failed to create destination directory: %w", err)
+			}
+			
+			// Copy the file (simplified)
+			srcFile, err := os.Open(src)
+			if err != nil {
+				return nil, fmt.Errorf("failed to open source file: %w", err)
+			}
+			defer srcFile.Close()
+			
+			destFile, err := os.Create(filepath.Join(rootDir, dest))
+			if err != nil {
+				return nil, fmt.Errorf("failed to create destination file: %w", err)
+			}
+			defer destFile.Close()
+			
+			if _, err := io.Copy(destFile, srcFile); err != nil {
+				return nil, fmt.Errorf("failed to copy file: %w", err)
+			}
+			
+		case "ENV":
+			// Set environment variable
+			envParts := strings.SplitN(args, "=", 2)
+			if len(envParts) != 2 {
+				return nil, fmt.Errorf("invalid ENV instruction at line %d", i+1)
+			}
+			key, value := envParts[0], envParts[1]
+			
+			// Add to /etc/environment (simplified)
+			envFile := filepath.Join(rootDir, "etc", "environment")
+			f, err := os.OpenFile(envFile, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+			if err != nil {
+				return nil, fmt.Errorf("failed to open environment file: %w", err)
+			}
+			if _, err := fmt.Fprintf(f, "%s=%s\n", key, value); err != nil {
+				f.Close()
+				return nil, fmt.Errorf("failed to write environment variable: %w", err)
+			}
+			f.Close()
+			
+		default:
+			return nil, fmt.Errorf("unknown instruction at line %d: %s", i+1, instruction)
+		}
+		
+		// In a real implementation, we would commit a new layer here
+		fmt.Printf("Committed layer for instruction: %s\n", instruction)
+	}
+	
 	
 	img := &Image{
 		Name:    tag,

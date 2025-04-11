@@ -46,89 +46,94 @@ func main() {
 	command := flag.Arg(0)
 	
 	switch command {
-	case "run":
-		if flag.NArg() < 2 {
-			fmt.Println("Error: 'run' requires at least 1 argument")
-			fmt.Println("Usage: floka run [OPTIONS] IMAGE [COMMAND] [ARG...]")
-			os.Exit(1)
-		}
+
+	case "test":
+
+	// case "run":
+	// 	if flag.NArg() < 2 {
+	// 		fmt.Println("Error: 'run' requires at least 1 argument")
+	// 		fmt.Println("Usage: floka run [OPTIONS] IMAGE [COMMAND] [ARG...]")
+	// 		os.Exit(1)
+	// 	}
 		
-		// Parse run options
-		runFlags := flag.NewFlagSet("run", flag.ExitOnError)
-		memLimit := runFlags.String("m", "", "Memory limit (e.g., 512m, 1g)")
-		cpuShares := runFlags.Int("c", 0, "CPU shares (relative weight)")
+	// 	// Parse run options
+	// 	runFlags := flag.NewFlagSet("run", flag.ExitOnError)
+	// 	memLimit := runFlags.String("m", "", "Memory limit (e.g., 512m, 1g)")
+	// 	cpuShares := runFlags.Int("c", 0, "CPU shares (relative weight)")
 		
-		// Find where the options end and the image/command begins
-		var optArgs []string
-		remainingArgs := flag.Args()[1:] // Skip "run"
-		imageArgPos := 0
+	// 	// Find where the options end and the image/command begins
+	// 	var optArgs []string
+	// 	remainingArgs := flag.Args()[1:] // Skip "run"
+	// 	imageArgPos := 0
 		
-		for i, arg := range remainingArgs {
-			if !strings.HasPrefix(arg, "-") {
-				imageArgPos = i
-				break
-			}
-			optArgs = append(optArgs, arg)
-		}
+	// 	for i, arg := range remainingArgs {
+	// 		if !strings.HasPrefix(arg, "-") {
+	// 			imageArgPos = i
+	// 			break
+	// 		}
+	// 		optArgs = append(optArgs, arg)
+	// 	}
 		
-		if len(optArgs) > 0 {
-			runFlags.Parse(optArgs)
-		}
+	// 	if len(optArgs) > 0 {
+	// 		runFlags.Parse(optArgs)
+	// 	}
 		
-		// Extract image and command
-		if imageArgPos >= len(remainingArgs) {
-			fmt.Println("Error: IMAGE argument required")
-			os.Exit(1)
-		}
+	// 	// Extract image and command
+	// 	if imageArgPos >= len(remainingArgs) {
+	// 		fmt.Println("Error: IMAGE argument required")
+	// 		os.Exit(1)
+	// 	}
 		
-		imageName := remainingArgs[imageArgPos]
-		var cmdArgs []string
-		if imageArgPos+1 < len(remainingArgs) {
-			cmdArgs = remainingArgs[imageArgPos+1:]
-		}
+	// 	imageName := remainingArgs[imageArgPos]
+	// 	var cmdArgs []string
+	// 	if imageArgPos+1 < len(remainingArgs) {
+	// 		cmdArgs = remainingArgs[imageArgPos+1:]
+	// 	}
 		
-		// Run with parsed options
-		runContainerWithOpts(imageName, cmdArgs, *memLimit, *cpuShares)
+	// 	// Run with parsed options
+	// 	runContainerWithOpts(imageName, cmdArgs, *memLimit, *cpuShares)
+
 	
-	case "pull":
-		if flag.NArg() < 2 {
-			fmt.Println("Error: 'pull' requires 1 argument")
-			fmt.Println("Usage: floka pull IMAGE[:TAG]")
-			os.Exit(1)
-		}
-		pullImage(flag.Arg(1))
+	// case "pull":
+	// 	if flag.NArg() < 2 {
+	// 		fmt.Println("Error: 'pull' requires 1 argument")
+	// 		fmt.Println("Usage: floka pull IMAGE[:TAG]")
+	// 		os.Exit(1)
+	// 	}
+	// 	pullImage(flag.Arg(1))
 	
-	case "build":
-		buildFlags := flag.NewFlagSet("build", flag.ExitOnError)
-		tagFlag := buildFlags.String("t", "", "Name and optionally a tag in the 'name:tag' format")
-		fileFlag := buildFlags.String("f", "Dockerfile", "Name of the Dockerfile")
+	// case "build":
+	// 	buildFlags := flag.NewFlagSet("build", flag.ExitOnError)
+	// 	tagFlag := buildFlags.String("t", "", "Name and optionally a tag in the 'name:tag' format")
+	// 	fileFlag := buildFlags.String("f", "flokafile", "Name of the Flokafile")
 		
-		buildFlags.Parse(flag.Args()[1:])
+	// 	buildFlags.Parse(flag.Args()[1:])
 		
-		if *tagFlag == "" {
-			fmt.Println("Error: 'build' requires a tag")
-			fmt.Println("Usage: floka build -t NAME[:TAG] [PATH]")
-			os.Exit(1)
-		}
+	// 	if *tagFlag == "" {
+	// 		fmt.Println("Error: 'build' requires a tag")
+	// 		fmt.Println("Usage: floka build -t NAME[:TAG] [PATH]")
+	// 		os.Exit(1)
+	// 	}
 		
-		path := "."
-		if buildFlags.NArg() > 0 {
-			path = buildFlags.Arg(0)
-		}
+	// 	path := "."
+	// 	if buildFlags.NArg() > 0 {
+	// 		path = buildFlags.Arg(0)
+	// 	}
 		
-		buildImage(*fileFlag, path, *tagFlag)
+	// 	buildImage(*fileFlag, path, *tagFlag)
 	
-	case "images":
-		fmt.Println("REPOSITORY          TAG                 IMAGE ID            SIZE")
-		fmt.Println("mock/ubuntu         latest              abc123def456        120 MB")
-		fmt.Println("mock/alpine         latest              789ghi101112        5 MB")
+	// case "images":
+	// 	fmt.Println("REPOSITORY          TAG                 IMAGE ID            SIZE")
+	// 	// CHECKME: This is a mock output
+	// 	fmt.Println("mock/ubuntu         latest             1234567890abcdef    123MB")	
+	// 	fmt.Println("mock/ubuntu         20.04              0987654321fedcba    120MB")
 	
-	case "ps":
-		fmt.Println("CONTAINER ID        IMAGE               COMMAND             STATUS              PORTS")
-		fmt.Println("cont_12345          mock/ubuntu         \"/bin/bash\"         running             -")
+	// case "ps":
+	// 	fmt.Println("CONTAINER ID        IMAGE               COMMAND             STATUS              PORTS")
+	// 	// CHECKME: This is a mock output
 	
-	case "help":
-		flag.Usage()
+	// case "help":
+	// 	flag.Usage()
 	
 	default:
 		fmt.Printf("Error: unknown command '%s'\n", command)
@@ -137,40 +142,45 @@ func main() {
 	}
 }
 
-// runContainerized is called when we are inside the container namespaces
 func runContainerized(args []string) {
 	if len(args) < 2 {
 		fmt.Println("Error: not enough arguments for containerize")
 		os.Exit(1)
 	}
-	
+
 	rootfs := args[0]
 	command := args[1:]
-	
+
 	// Set up the mount namespace
 	if err := setupContainerFilesystem(rootfs); err != nil {
 		fmt.Printf("Failed to set up container filesystem: %v\n", err)
 		os.Exit(1)
 	}
-	
-	// Change to the new root
+
+	// Make sure we unmount old_root even if something fails
+	defer func() {
+		_ = syscall.Unmount("/old_root", syscall.MNT_DETACH)
+		_ = os.RemoveAll("/old_root") // optional: clean up dir
+	}()
+
+	// Set hostname
+	_ = syscall.Sethostname([]byte("floka-container"))
+
+	// Change to root
 	if err := os.Chdir("/"); err != nil {
-		fmt.Printf("Failed to change directory to root: %v\n", err)
+		fmt.Printf("Failed to chdir to new root: %v\n", err)
 		os.Exit(1)
 	}
-	
+
 	// Execute the container command
 	cmd := exec.Command(command[0], command[1:]...)
 	cmd.Stdin = os.Stdin
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
-	
-	// Set hostname
-	syscall.Sethostname([]byte("floka-container"))
-	
+
 	if err := cmd.Run(); err != nil {
-		if exitError, ok := err.(*exec.ExitError); ok {
-			os.Exit(exitError.ExitCode())
+		if exitErr, ok := err.(*exec.ExitError); ok {
+			os.Exit(exitErr.ExitCode())
 		} else {
 			fmt.Printf("Error running container command: %v\n", err)
 			os.Exit(1)
@@ -178,31 +188,44 @@ func runContainerized(args []string) {
 	}
 }
 
-// setupContainerFilesystem sets up the mount namespace for the container
 func setupContainerFilesystem(rootfs string) error {
-	// Mount proc filesystem
-	if err := syscall.Mount("proc", filepath.Join(rootfs, "proc"), "proc", 0, ""); err != nil {
-		return fmt.Errorf("failed to mount proc: %w", err)
+	mountPoints := []string{"proc", "sys", "dev", "old_root"}
+	for _, dir := range mountPoints {
+		path := filepath.Join(rootfs, dir)
+		if err := os.MkdirAll(path, 0755); err != nil {
+			return fmt.Errorf("failed to create %s: %w", path, err)
+		}
 	}
-	
-	// Mount sysfs
-	if err := syscall.Mount("sysfs", filepath.Join(rootfs, "sys"), "sysfs", 0, ""); err != nil {
-		return fmt.Errorf("failed to mount sysfs: %w", err)
+
+	// Bind mount the rootfs to itself to make it a mount point
+	if err := syscall.Mount(rootfs, rootfs, "", syscall.MS_BIND|syscall.MS_REC, ""); err != nil {
+		return fmt.Errorf("bind mount rootfs failed: %w", err)
 	}
-	
-	// Mount /dev as tmpfs
-	if err := syscall.Mount("tmpfs", filepath.Join(rootfs, "dev"), "tmpfs", 0, ""); err != nil {
-		return fmt.Errorf("failed to mount tmpfs for /dev: %w", err)
+
+	if err := os.Chdir(rootfs); err != nil {
+		return fmt.Errorf("failed to chdir to rootfs: %w", err)
 	}
-	
-	// Pivot to the new root
-	// This is a simplified approach - a full implementation would use pivot_root
-	if err := syscall.Chroot(rootfs); err != nil {
-		return fmt.Errorf("failed to chroot: %w", err)
+
+	if err := syscall.PivotRoot(".", "old_root"); err != nil {
+		return fmt.Errorf("pivot_root failed: %w", err)
 	}
-	
+
+	_ = os.Chdir("/") // switch to new root
+
+	// Mount basic filesystems
+	if err := syscall.Mount("proc", "/proc", "proc", 0, ""); err != nil {
+		return fmt.Errorf("failed to mount /proc: %w", err)
+	}
+	if err := syscall.Mount("sysfs", "/sys", "sysfs", 0, ""); err != nil {
+		return fmt.Errorf("failed to mount /sys: %w", err)
+	}
+	if err := syscall.Mount("tmpfs", "/dev", "tmpfs", 0, ""); err != nil {
+		return fmt.Errorf("failed to mount /dev: %w", err)
+	}
+
 	return nil
 }
+
 
 // runContainerWithOpts runs a container with the specified resource options
 func runContainerWithOpts(imageName string, command []string, memLimit string, cpuShares int) {
@@ -273,39 +296,20 @@ func parseMemoryLimit(limit string) (int64, error) {
 	return value * multiplier, nil
 }
 
-func pullImage(nameWithTag string) {
-	parts := strings.SplitN(nameWithTag, ":", 2)
-	name := parts[0]
-	tag := "latest"
-	
-	if len(parts) > 1 {
-		tag = parts[1]
-	}
-	
-	fmt.Printf("Pulling image '%s:%s'\n", name, tag)
-	
-	img, err := fimage.Pull(name, tag)
-	if err != nil {
-		fmt.Printf("Error pulling image: %s\n", err)
-		os.Exit(1)
-	}
-	
-	fmt.Printf("Image pulled: %s\n", img.ID)
-}
 
 func buildImage(flokafilePath, contextPath, tag string) {
 	fullPath := fmt.Sprintf("%s/%s", contextPath, flokafilePath)
 	
-	// Parse the Dockerfile
-	dockerfile, err := flokafile.Parse(fullPath)
+	// Parse the Flokafile
+	Flokafile, err := flokafile.Parse(fullPath)
 	if err != nil {
-		fmt.Printf("Error parsing Dockerfile: %s\n", err)
+		fmt.Printf("Error parsing Flokafile: %s\n", err)
 		os.Exit(1)
 	}
 	
-	// Execute the Dockerfile instructions
-	if err := dockerfile.Execute(); err != nil {
-		fmt.Printf("Error executing Dockerfile: %s\n", err)
+	// Execute the Flokafile instructions
+	if err := Flokafile.Execute(); err != nil {
+		fmt.Printf("Error executing Flokafile: %s\n", err)
 		os.Exit(1)
 	}
 	

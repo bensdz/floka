@@ -1,0 +1,5 @@
+FROM ubuntu:latest
+RUN echo "Hello from the build process"
+CMD ["cat", ">>", "test.txt"]
+RUN echo "Hello from the build process" > test.txt
+CMD ["cat", "test.txt"]
