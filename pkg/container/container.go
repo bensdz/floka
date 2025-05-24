@@ -21,7 +21,6 @@ type Container struct {
     Pid     int
 }
 
-// ContainerOpts contains options for container creation
 type ContainerOpts struct {
     Memory    int64 // Memory limit in bytes
     CPUShares int64 // CPU shares (relative weight)
@@ -71,8 +70,8 @@ func Run(image string, command []string, opts *ContainerOpts) (*Container, error
     }
     
     // Start the container process
-    if err := container.start(rootfs); err != nil {
-        return container, err
+    if err := container.Start(rootfs); err != nil {
+    	return container, err
     }
     
     return container, nil
@@ -225,12 +224,11 @@ func setupCgroups(containerID string, opts *ContainerOpts) error {
     return nil
 }
 
-// Start the container process
-func (c *Container) start(rootfs string) error {
-    fmt.Printf("Starting container %s with image %s\n", c.ID, c.Image)
-    
-    // The path to the executable *inside* the container's chrooted environment
-    containerExecutableInternalPath := "/usr/local/bin/floka"
+// Start the container process (making it exported)
+func (c *Container) Start(rootfs string) error {
+	
+	// The path to the executable *inside* the container's chrooted environment
+	containerExecutableInternalPath := "/usr/local/bin/floka"
    
     // Use self-exec trick to enter namespaces, using the path inside the container
     cmd := exec.Command(containerExecutableInternalPath)
@@ -275,23 +273,25 @@ func (c *Container) start(rootfs string) error {
     
     // Add process to cgroups
     if err := addProcessToCgroups(c.ID, c.Pid); err != nil {
-        fmt.Printf("Warning: failed to add process to cgroups: %s\n", err)
+    	fmt.Printf("Warning: failed to add process to cgroups: %s\n", err)
     }
     
-    // In a real implementation, we would track the process and handle its lifecycle
-    go func() {
-        cmd.Wait()
-        c.Status = "stopped"
-        
-        // Update metadata when container stops
-        if err := c.updateMetadata(); err != nil {
-            fmt.Printf("Warning: failed to update container metadata: %s\n", err)
-        }
-        
-        fmt.Printf("Container %s stopped\n", c.ID)
-    }()
+    // Wait for the command to complete. This is crucial for seeing its output
+    // and for the parent process to not exit prematurely.
+    waitErr := cmd.Wait()
+   
+    // Update status after command completion
+    c.Status = "stopped"
+    if err := c.updateMetadata(); err != nil {
+    	fmt.Printf("Warning: failed to update container metadata after stop: %s\n", err)
+    }
+   
+    if waitErr != nil {
     
-    return nil
+    	return waitErr // Propagate the error from the command
+    } 
+    
+    return nil // Container start was initiated, command has now run.
 }
 
 // ListContainers returns a list of all containers
@@ -355,9 +355,65 @@ func ListContainers() ([]*Container, error) {
     }
     
     return containers, nil
-}
-
-// addProcessToCgroups adds the container process to appropriate cgroups
+   }
+   
+   // Load attempts to load an existing container's metadata by its ID.
+   func Load(containerID string) (*Container, error) {
+    metadataFile := filepath.Join("containers", containerID, "metadata", "container.json")
+   
+    if _, err := os.Stat(metadataFile); os.IsNotExist(err) {
+    	return nil, fmt.Errorf("container '%s' not found: %w", containerID, err)
+    }
+   
+    data, err := os.ReadFile(metadataFile)
+    if err != nil {
+    	return nil, fmt.Errorf("failed to read metadata for container %s: %w", containerID, err)
+    }
+   
+    var metadataMap map[string]interface{}
+    if err := json.Unmarshal(data, &metadataMap); err != nil {
+    	return nil, fmt.Errorf("failed to parse metadata for container %s: %w", containerID, err)
+    }
+   
+    // Extract the command as a string slice
+    var cmd []string
+    if cmdJSON, ok := metadataMap["Command"].([]interface{}); ok {
+    	for _, c := range cmdJSON {
+    		if str, ok := c.(string); ok {
+    			cmd = append(cmd, str)
+    		}
+    	}
+    }
+   
+    // Ensure Image and Status are strings
+    image, ok := metadataMap["Image"].(string)
+    if !ok {
+    	return nil, fmt.Errorf("metadata for container %s has invalid Image field", containerID)
+    }
+    status, ok := metadataMap["Status"].(string)
+    if !ok {
+    	return nil, fmt.Errorf("metadata for container %s has invalid Status field", containerID)
+    }
+   
+   
+    container := &Container{
+    	ID:      containerID,
+    	Image:   image,
+    	Command: cmd,
+    	Status:  status,
+    }
+   
+    // Try to get PID if present
+    if pidVal, pidExists := metadataMap["Pid"]; pidExists {
+    	if pid, ok := pidVal.(float64); ok { // JSON numbers are float64
+    		container.Pid = int(pid)
+    	}
+    }
+    
+    return container, nil
+   }
+   
+   
 func addProcessToCgroups(containerID string, pid int) error {
     cgroupPath := filepath.Join("/sys/fs/cgroup")
     pidStr := strconv.Itoa(pid)
@@ -426,12 +482,29 @@ func (c *Container) Remove() error {
         fmt.Printf("Warning: failed to clean up cgroups: %s\n", err)
     }
     
-    // Remove container filesystem
+    // Unmount the container's rootfs before removing the directory
     containerDir := filepath.Join("containers", c.ID)
+    rootfsPath := filepath.Join(containerDir, "rootfs")
+   
+    // Check if rootfsPath actually exists and is a mount point before unmounting
+    // This is a basic check; a more robust check would involve parsing /proc/mounts
+    if _, err := os.Stat(rootfsPath); err == nil {
+    	// fmt.Printf("Attempting to unmount: %s\n", rootfsPath) // Optional: for debugging
+    	if err := syscall.Unmount(rootfsPath, syscall.MNT_DETACH); err != nil {
+    		// Log the error but proceed with RemoveAll, as it might still be a "device or resource busy"
+    		// which os.RemoveAll might also encounter.
+    		// The MNT_DETACH flag attempts a lazy unmount.
+    		fmt.Printf("Warning: failed to unmount %s: %v. Proceeding with removal attempt.\n", rootfsPath, err)
+    	} else {
+    		// fmt.Printf("Successfully unmounted %s\n", rootfsPath) // Optional: for debugging
+    	}
+    }
+   
+    // Remove container filesystem
     return os.RemoveAll(containerDir)
-}
-
-// cleanupCgroups removes the container's cgroup directories
+   }
+   
+   // cleanupCgroups removes the container's cgroup directories
 func cleanupCgroups(containerID string) error {
     cgroupPath := filepath.Join("/sys/fs/cgroup")
     
@@ -459,6 +532,5 @@ func cleanupCgroups(containerID string) error {
 
 // generateID creates a unique container ID
 func generateID() string {
-    // In a real implementation, we would generate a proper UUID or similar
     return fmt.Sprintf("cont_%d", time.Now().UnixNano())
 }

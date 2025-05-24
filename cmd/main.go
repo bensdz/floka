@@ -24,11 +24,9 @@ func main() {
 		fmt.Fprintf(os.Stderr, "Usage: %s COMMAND [ARG...]\n\n", os.Args[0])
 		fmt.Fprintf(os.Stderr, "Commands:\n")
 		fmt.Fprintf(os.Stderr, "  run         Run a command in a new container\n")
-		//fmt.Fprintf(os.Stderr, "  pull        Pull an image from a registry\n")
+		fmt.Fprintf(os.Stderr, "  pull        Pull an image from a registry\n")
 		fmt.Fprintf(os.Stderr, "  build       Build an image from a Flokafile\n")
 		fmt.Fprintf(os.Stderr, "  images      List images\n")
-		fmt.Fprintf(os.Stderr, "  ps          List containers\n")
-		fmt.Fprintf(os.Stderr, "  help        Show help\n")
 		fmt.Fprintf(os.Stderr, "  ps          List containers\n")
 		fmt.Fprintf(os.Stderr, "  help        Show help\n")
 	}
@@ -87,9 +85,7 @@ func main() {
 		if imageArgPos+1 < len(remainingArgs) {
 			cmdArgs = remainingArgs[imageArgPos+1:]
 		}
-		fmt.Printf("Running container with image '%s' and command '%s'\n", imageName, strings.Join(cmdArgs, " "))
-		
-		// Run with parsed options
+
 		runContainerWithOpts(imageName, cmdArgs, *memLimit, *cpuShares)
 
 	
@@ -106,7 +102,7 @@ func main() {
 			imageName = parts[0]
 			tag = parts[1]
 		}
-		fmt.Printf("Pulling image %s with tag %s...\n", imageName, tag)
+		// fmt.Printf("Pulling image %s with tag %s...\n", imageName, tag)
 		_, err := fimage.Pull(imageName, tag)
 		if err != nil {
 			fmt.Printf("Error pulling image: %s\n", err)
@@ -339,14 +335,35 @@ func runContainerWithOpts(imageName string, command []string, memLimit string, c
 		os.Exit(1)
 	}
 	
-	// Create and start the container using the image's RootDir
-	cont, err := container.Run(img.RootDir, command, &opts)
+	cont, err := container.Run(img.RootDir, command, &opts) // Get the container object, use := for cont
 	if err != nil {
 		fmt.Printf("Error running container: %s\n", err)
+		// If container.Run failed before fully creating the container object, cont might be nil.
+		// container.Run should ideally handle cleanup of its partial work if it errors out.
+		// If cont is non-nil here, it means Run returned an error *after* creating the container struct,
+		// which might imply a failure during the start phase.
+		if cont != nil {
+			// Attempt cleanup if container object exists but Run failed during its operation
+			// This is a best-effort cleanup.
+			// fmt.Printf("Attempting cleanup for partially created/failed container %s\n", cont.ID)
+			_ = cont.Remove() // Ignore error from remove here as we're already in an error path
+		}
 		os.Exit(1)
 	}
 	
-	fmt.Printf("Container started: %s (PID: %d)\n", cont.ID, cont.Pid)
+	// Ensure cleanup after the command has run successfully or if a panic occurs
+	if cont != nil {
+		defer func() {
+			// fmt.Printf("Cleaning up container %s...\n", cont.ID) // Optional: log cleanup
+			if removeErr := cont.Remove(); removeErr != nil {
+				fmt.Printf("Warning: failed to remove container %s: %v\n", cont.ID, removeErr)
+			} // else {
+				// fmt.Printf("Container %s removed.\n", cont.ID) // Optional: log successful removal
+			// }
+		}()
+	}
+	
+	// fmt.Printf("Container started: %s (PID: %d)\n", cont.ID, cont.Pid) // This was already commented
 }
 
 // parseMemoryLimit parses a human-readable memory limit to bytes
@@ -404,8 +421,6 @@ func buildImage(flokafilePath, contextPath, tag string) {
 func runContainerized(command []string) {
 	// This function is now running *inside* the chrooted environment.
 	// Mount essential filesystems required for most processes.
-	// The target directories (/proc, /sys, /dev) should have been created by prepareRootfs.
-
 	mounts := []struct {
 		source string
 		target string
@@ -421,21 +436,21 @@ func runContainerized(command []string) {
 	for _, m := range mounts {
 		if err := syscall.Mount(m.source, m.target, m.fstype, m.flags, m.data); err != nil {
 			fmt.Printf("Error mounting %s in container: %v\n", m.target, err)
-			// Attempt to clean up previously successful mounts if one fails
-			for i := len(mounts) -1 ; i >=0; i-- {
+			for i := len(mounts) - 1; i >= 0; i-- {
 				syscall.Unmount(mounts[i].target, syscall.MNT_DETACH)
 			}
 			os.Exit(1)
 		}
 	}
-
-	// Defer unmounts in reverse order of mounting.
-	// MNT_DETACH is used for a lazy unmount, useful if resources are busy.
 	defer syscall.Unmount("/dev", syscall.MNT_DETACH)
 	defer syscall.Unmount("/sys", syscall.MNT_DETACH)
 	defer syscall.Unmount("/proc", syscall.MNT_DETACH)
-	
-	// Create /dev/pts for pseudo-terminals
+
+	containerHostname := "floka-container"
+	if err := syscall.Sethostname([]byte(containerHostname)); err != nil {
+		// fmt.Printf("Warning: failed to set hostname to '%s': %v\n", containerHostname, err)
+	}
+
 	devPtsDir := "/dev/pts"
 	if err := os.MkdirAll(devPtsDir, 0755); err == nil {
 		if err := syscall.Mount("devpts", devPtsDir, "devpts", syscall.MS_NOSUID|syscall.MS_NOEXEC, "newinstance,ptmxmode=0666,mode=0620,gid=5"); err != nil {
@@ -447,51 +462,91 @@ func runContainerized(command []string) {
 		fmt.Printf("Warning: could not create %s directory: %v\n", devPtsDir, err)
 	}
 
-
 	if len(command) == 0 {
-		fmt.Println("Error: no command provided to execute in containerized environment")
 		os.Exit(1)
 	}
 
-	fmt.Printf("Executing '%s' in container\n", strings.Join(command, " "))
+	fmt.Printf("--- DIAGNOSTIC: runContainerized ---\n")
+	fmt.Printf("Received command: %v\n", command)
 
-	var cmd *exec.Cmd
-	if len(command) > 0 && (command[0] == "bash" || strings.HasSuffix(command[0], "/bash")) && len(command) > 0 {
-		// If the command is 'bash', try executing it with an absolute path.
-		// This helps differentiate PATH issues from execution/linker issues.
+	var cmdToExec string
+	var cmdArgsToExec []string
+	var err error // Declare err once for os.Stat calls within this scope
+
+	if len(command) > 0 && (command[0] == "bash" || strings.HasSuffix(command[0], "/bash")) {
 		absoluteBashPath := "/bin/bash"
-		if _, err := os.Stat(absoluteBashPath); err == nil {
-			fmt.Printf("Attempting to execute bash with absolute path: %s\n", absoluteBashPath)
-			cmd = exec.Command(absoluteBashPath, command[1:]...)
+		fmt.Printf("Attempting to use absolute path for bash: %s\n", absoluteBashPath)
+		if _, err = os.Stat(absoluteBashPath); err == nil { // Use existing err
+			fmt.Printf("Found %s, will use it.\n", absoluteBashPath)
+			cmdToExec = absoluteBashPath
+			if len(command) > 1 {
+				cmdArgsToExec = command[1:]
+			}
 		} else {
-			// Fallback to original command if /bin/bash doesn't exist (should not happen given previous debug)
-			fmt.Printf("Warning: %s not found, falling back to command[0]: %s\n", absoluteBashPath, command[0])
-			cmd = exec.Command(command[0], command[1:]...)
+			fmt.Printf("Could not stat %s: %v. Falling back to command[0]: %s\n", absoluteBashPath, err, command[0])
+			cmdToExec = command[0]
+			if len(command) > 1 {
+				cmdArgsToExec = command[1:]
+			}
 		}
 	} else if len(command) > 0 {
-		cmd = exec.Command(command[0], command[1:]...)
+		cmdToExec = command[0]
+		if len(command) > 1 {
+			cmdArgsToExec = command[1:]
+		}
 	} else {
-		// This case should be caught earlier, but as a safeguard:
-		fmt.Println("Error: Empty command in runContainerized")
+		fmt.Println("CRITICAL ERROR: Empty command in runContainerized")
 		os.Exit(1)
 	}
+	
+	fmt.Printf("Final command to exec: %s\n", cmdToExec)
+	fmt.Printf("Final arguments to exec: %v\n", cmdArgsToExec)
+
+	bashCheckPath := "/bin/bash"
+	bi, statErr := os.Stat(bashCheckPath)
+	if statErr != nil {
+		fmt.Printf("os.Stat(%s) error: %v\n", bashCheckPath, statErr)
+	} else {
+		fmt.Printf("os.Stat(%s): Name: %s, Size: %d, Mode: %s, IsDir: %t\n", bashCheckPath, bi.Name(), bi.Size(), bi.Mode(), bi.IsDir())
+	}
+	
+	usrBinBashCheckPath := "/usr/bin/bash"
+	ubi, statErr := os.Stat(usrBinBashCheckPath)
+	if statErr != nil {
+		fmt.Printf("os.Stat(%s) error: %v\n", usrBinBashCheckPath, statErr)
+	} else {
+		fmt.Printf("os.Stat(%s): Name: %s, Size: %d, Mode: %s, IsDir: %t\n", usrBinBashCheckPath, ubi.Name(), ubi.Size(), ubi.Mode(), ubi.IsDir())
+	}
+
+	cmd := exec.Command(cmdToExec, cmdArgsToExec...)
 	
 	cmd.Stdin = os.Stdin
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
-	// Set a minimal default environment.
+	cmd.Dir = "/"
 	cmd.Env = []string{
 		"PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
 		"HOME=/",
 		"PWD=/",
-		"TERM=xterm", // A common terminal type
+		"TERM=xterm",
 	}
+	fmt.Printf("Environment PATH for exec: %s\n", getPathFromEnv(cmd.Env))
+	fmt.Printf("--- END DIAGNOSTIC: runContainerized ---\n")
 	
-	if err := cmd.Run(); err != nil {
+	if err = cmd.Run(); err != nil { // Assign to existing err
 		if exitError, ok := err.(*exec.ExitError); ok {
 			os.Exit(exitError.ExitCode())
 		}
 		fmt.Printf("Error executing command in container: %s\n", err)
 		os.Exit(1)
 	}
+}
+
+func getPathFromEnv(env []string) string {
+	for _, e := range env {
+		if strings.HasPrefix(e, "PATH=") {
+			return strings.TrimPrefix(e, "PATH=")
+		}
+	}
+	return "PATH_NOT_FOUND_IN_ENV_ARRAY"
 }

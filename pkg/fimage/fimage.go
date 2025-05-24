@@ -24,10 +24,9 @@ type Image struct {
 
 // Pull downloads an image from a registry or creates a mock image locally
 func Pull(name string, tag string) (*Image, error) {
-    fmt.Printf("Pulling image %s:%s\n", name, tag)
-    
-    if tag == "" {
-        tag = "latest"
+	
+	if tag == "" {
+		tag = "latest"
     }
     
     // Set up image directories relative to the current working directory
@@ -38,12 +37,11 @@ func Pull(name string, tag string) (*Image, error) {
     rootDir := filepath.Join(imageDir, "rootfs")
     
     // Check if we already have the image locally
-    // First try user home directory
     if _, err := os.Stat(imageDir); err == nil {
-        fmt.Printf("Image %s already exists locally\n", imageFullName)
-        
-        // Load existing image metadata
-        size, _ := dirSize(rootDir)
+    	fmt.Printf("Image %s already exists locally\n", imageFullName)
+    	
+    	// Load existing image metadata
+    	size, _ := dirSize(rootDir)
         
         return &Image{
             Name:    name,
@@ -61,6 +59,7 @@ func Pull(name string, tag string) (*Image, error) {
     if err := os.MkdirAll(rootDir, 0755); err != nil {
         return nil, fmt.Errorf("failed to create image directory: %w", err)
     }
+	fmt.Printf("Created directory for image %s at %s\n", imageFullName, imageDir)
     
     return nil, fmt.Errorf("image %s not found locally and pull functionality is not implemented", imageFullName)
 }
