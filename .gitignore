@@ -1,2 +1,4 @@
-images/
-containers/
+images/*
+!images/readme.md
+containers/*
+!containers/readme.md
