@@ -1,6 +1,10 @@
 # Floka: A Simple Containerization Tool
 
+[Floka Logo](photos/Floka.png)
+
 Floka is a basic containerization tool written in Go. It aims to provide a simplified, educational implementation of container concepts like image management, container lifecycle, and namespacing.
+
+[Floka Demo](photos/flokasc.png)
 
 **Note:** This project is currently under development and primarily for learning purposes. Many features are simplified or not yet implemented.
 
